@@ -1,47 +1,33 @@
-const axios = require("axios"); 
+const Esana = require('esana-news-scraper'); // Import the Esana scraper
 const mongoose = require('mongoose'); 
-const CryptoJS = require("crypto-js"); 
-const makeWASocket = require("@whiskeysockets/baileys").default;
-const { delay, Browsers, MessageRetryMap, fetchLatestBaileysVersion, WA_DEFAULT_EPHEMERAL, useMultiFileAuthState, makeInMemoryStore } = require("@whiskeysockets/baileys");
 const pino = require("pino");
-const request = require('@cypress/request');
+const { useMultiFileAuthState, makeWASocket, fetchLatestBaileysVersion, makeInMemoryStore } = require("@whiskeysockets/baileys");
 
-const UserSchema = new mongoose.Schema({ 
-    id: { type: String, required: true, unique: true }, 
-    newsid: { type: String }, 
+// MongoDB schema for storing news information
+const UserSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    newsid: { type: String }, // For tracking the last sent news
 });
 
-const news1 = mongoose.model("news1", UserSchema);
+const news1 = mongoose.model("news1", UserSchema); // Define the news model
 
-async function XAsena() { 
+async function XAsena() {
     try {
-        await mongoose.connect('mongodb+srv://supunpc58:MFxsqnn2j4gsBBFt@cluster0.3mosadb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0');
-        console.log('Connected Success!');
+        // Connect to MongoDB
+        await mongoose.connect('mongodb+srv://YOUR_MONGO_DB_CONNECTION_STRING');
+        console.log('Connected to MongoDB');
 
+        // Initialize WhatsApp Socket
         const { state, saveCreds } = await useMultiFileAuthState(__dirname + '/session');
         const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
-        const { version, isLatest } = await fetchLatestBaileysVersion();
-        
+        const { version } = await fetchLatestBaileysVersion();
+
         const session = makeWASocket({
             logger: pino({ level: 'fatal' }),
             printQRInTerminal: true,
-            browser: ['Jithula', 'safari', '1.0.0'],
-            fireInitQueries: false,
-            shouldSyncHistoryMessage: false,
-            downloadHistory: false,
-            syncFullHistory: false,
-            generateHighQualityLinkPreview: true,
+            browser: ['EsanaNewsBot', 'Safari', '1.0.0'],
             auth: state,
             version: version,
-            getMessage: async key => {
-                if (store) {
-                    const msg = await store.loadMessage(key.remoteJid, key.id, undefined);
-                    return msg.message || undefined;
-                }
-                return {
-                    conversation: 'An Error Occurred, Repeat Command!'
-                };
-            }
         });
 
         store.bind(session.ev);
@@ -50,48 +36,65 @@ async function XAsena() {
             const { connection, lastDisconnect } = s;
             if (connection === "open") {
                 console.log('Connection opened, starting news fetch loop');
-                
-                async function news() {
-                    try {
-                        let response = await fetch('https://apilink-production-534b.up.railway.app/api/latest/');
-                        let data = await response.json();
-                        let mg = `*${data.title}*
-●━━━━━━━━━━━━━━━━━━━━━●
-\`\`\`${data.desc}\`\`\`
-●━━━━━━━━━━━━━━━━━━━━━●
-${data.time}
 
-📡 Source - hirunews.lk
+                // Initialize Esana scraper
+                var api = new Esana();
+
+                // Variable to store the ID of the last news sent
+                let lastNewsId = null;
+
+                // Define callback function for new news
+                var callback = async (full_news) => {
+                    try {
+                        // Check if the current news is new (compare news ID)
+                        if (full_news.id !== lastNewsId) {
+                            // Format the news message
+                            let mg = `*${full_news.title}*
+●━━━━━━━━━━━━━━━━━━━━━●
+\`\`\`${full_news.desc}\`\`\`
+●━━━━━━━━━━━━━━━━━━━━━●
+${full_news.time}
+
+📡 Source - Esana 
    𝙱𝙾𝚃𝙺𝙸𝙽𝙶𝙳𝙾𝙼 
 
 ●━━━━━━━━━━━━━━━━━━━━━●`;
 
-                        let newss = await news1.findOne({ id: '123' });
+                            let newss = await news1.findOne({ id: '123' });
 
-                        if (!newss) {
-                            await new news1({ id: '123', newsid: data.id, events: 'true' }).save();
-                        } else if (newss.newsid == data.id) {
-                            console.log('News already sent');
-                            return;
+                            if (!newss) {
+                                await new news1({ id: '123', newsid: full_news.id, events: 'true' }).save();
+                            } else {
+                                await news1.updateOne({ id: '123' }, { newsid: full_news.id, events: 'true' });
+                            }
+
+                            console.log('Sending message to all groups');
+                            const groups = await session.groupFetchAllParticipating();
+                            const groupIds = Object.keys(groups);
+
+                            // Send the news message to all groups
+                            for (const id of groupIds) {
+                                console.log(`Sending message to group: ${id}`);
+                                await sendMessageWithRetry(session, id, { image: { url: full_news.image }, caption: mg });
+                            }
+
+                            // Update lastNewsId to the current news ID after sending it
+                            lastNewsId = full_news.id;
                         } else {
-                            await news1.updateOne({ id: '123' }, { newsid: data.id, events: 'true' });
+                            console.log('Same news as last time, skipping sending.');
                         }
-
-                        console.log('Sending message to all groups');
-                        const groups = await session.groupFetchAllParticipating();
-                        const groupIds = Object.keys(groups);
-                        for (const id of groupIds) {
-                            console.log(`Sending message to group: ${id}`);
-                            await sendMessageWithRetry(session, id, { image: { url: data.image }, caption: mg });
-                        }
-
                     } catch (err) {
-                        console.error('Failed to fetch news:', err);
+                        console.error('Error in sending news:', err);
                     }
-                }
+                };
 
-                setInterval(news, 10000);
+                // Set interval for fetching news every 60 seconds
+                var ms = 60 * 1000; // 60 seconds
+
+                // Start the news loop
+                await api.news_loop(callback, ms);
             }
+
             if (connection === "close" && lastDisconnect && lastDisconnect.error && lastDisconnect.error.output.statusCode !== 401) {
                 console.log('Connection closed, reconnecting...');
                 XAsena();
@@ -107,10 +110,11 @@ ${data.time}
     }
 }
 
+// Retry function to handle message sending failures
 async function sendMessageWithRetry(session, jid, message, retries = 3) {
     for (let i = 0; i < retries; i++) {
         try {
-            await session.sendMessage(jid, message, { ephemeralExpiration: WA_DEFAULT_EPHEMERAL });
+            await session.sendMessage(jid, message);
             console.log('Message sent successfully');
             return;
         } catch (err) {
