@@ -1,5 +1,5 @@
 const Esana = require('esana-news-scraper'); // Import the Esana scraper
-const mongoose = require('mongoose'); 
+const mongoose = require('mongoose');
 const pino = require("pino");
 const { useMultiFileAuthState, makeWASocket, fetchLatestBaileysVersion, makeInMemoryStore } = require("@whiskeysockets/baileys");
 
@@ -17,23 +17,26 @@ async function XAsena() {
         await mongoose.connect('mongodb+srv://esana:ztE49AXAm!YFw6_@cluster1.kpjy4.mongodb.net/?retryWrites=true&w=majority&appName=Cluster1');
         console.log('Connected to MongoDB');
 
-        // Initialize WhatsApp Socket
+        // Set up multi-file auth state (this saves session data)
         const { state, saveCreds } = await useMultiFileAuthState(__dirname + '/session');
         const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
         const { version } = await fetchLatestBaileysVersion();
 
+        // Initialize WhatsApp Web socket
         const session = makeWASocket({
-            logger: pino({ level: 'fatal' }),
-            printQRInTerminal: true,
-            browser: ['EsanaNewsBot', 'Safari', '1.0.0'],
-            auth: state,
+            logger: pino({ level: 'fatal' }),   // Set logging level
+            printQRInTerminal: true,            // Ensure QR code is printed in the terminal
+            auth: state,                        // Reuse saved session
             version: version,
+            browser: ['EsanaNewsBot', 'Safari', '1.0.0'],  // Bot metadata
         });
 
+        // Bind the event store
         store.bind(session.ev);
 
-        session.ev.on("connection.update", async (s) => {
-            const { connection, lastDisconnect } = s;
+        // Listen for connection updates
+        session.ev.on("connection.update", async (update) => {
+            const { connection, lastDisconnect } = update;
             if (connection === "open") {
                 console.log('Connection opened, starting news fetch loop');
 
@@ -95,15 +98,15 @@ ${full_news.time}
                 await api.news_loop(callback, ms);
             }
 
+            // Handle reconnection if session closes
             if (connection === "close" && lastDisconnect && lastDisconnect.error && lastDisconnect.error.output.statusCode !== 401) {
                 console.log('Connection closed, reconnecting...');
                 XAsena();
             }
         });
 
+        // Save credentials when they are updated
         session.ev.on('creds.update', saveCreds);
-
-        session.ev.on("messages.upsert", () => {});
 
     } catch (err) {
         console.error('An error occurred:', err);
@@ -128,4 +131,5 @@ async function sendMessageWithRetry(session, jid, message, retries = 3) {
     }
 }
 
+// Start the bot
 XAsena();
