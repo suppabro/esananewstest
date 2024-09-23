@@ -1,6 +1,6 @@
 const pino = require('pino');
 const makeWASocket = require('@whiskeysockets/baileys').default;
-const { esana_latest_news_id, esana_latest_id } = require('esana-news.js');
+const Parser = require('rss-parser');
 const { MongoClient } = require('mongodb');
 
 // MongoDB setup
@@ -21,7 +21,7 @@ async function run() {
         logger: pino({ level: 'debug' }),
         printQRInTerminal: true, // This prints the QR code for you to scan
         auth: state,
-        version: [2, 2140, 12], // Make sure this version is compatible
+        version: [2, 2140, 12], // Ensure this version is compatible
     });
 
     session.ev.on('connection.update', (update) => {
@@ -34,16 +34,18 @@ async function run() {
 
     session.ev.on('creds.update', saveState);
 
-    // News fetching loop
+    // RSS news fetching loop
+    const parser = new Parser();
     async function fetchLatestNews() {
-        const latestNews = await esana_latest_news_id();  // Fetch news
-        console.log('Latest news:', latestNews);
+        const feed = await parser.parseURL('https://news.google.com/rss');  // Replace with your preferred RSS feed
+        const latestNews = feed.items[0];  // Get the latest news article
+        console.log('Latest news:', latestNews.title);
 
         // Save the news to MongoDB
         await collection.insertOne({
-            id: latestNews.id,
             title: latestNews.title,
-            url: latestNews.url,
+            link: latestNews.link,
+            pubDate: latestNews.pubDate,
             date: new Date(),
         });
     }
