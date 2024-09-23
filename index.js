@@ -14,7 +14,7 @@ const news1 = mongoose.model("news1", UserSchema); // Define the news model
 async function XAsena() {
     try {
         // Connect to MongoDB
-        await mongoose.connect('mongodb+srv://YOUR_MONGO_DB_CONNECTION_STRING');
+        await mongoose.connect('mongodb+srv://esana:ztE49AXAm!YFw6_@cluster1.kpjy4.mongodb.net/?retryWrites=true&w=majority&appName=Cluster1');
         console.log('Connected to MongoDB');
 
         // Initialize WhatsApp Socket
